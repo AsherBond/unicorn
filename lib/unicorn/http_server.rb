@@ -134,6 +134,7 @@ class Unicorn::HttpServer
     self.pid = config[:pid]
 
     self.master_pid = $$
+    init_nightmare! if respond_to?(:init_nightmare!)
     build_app! if preload_app
     spawn_missing_workers
     self

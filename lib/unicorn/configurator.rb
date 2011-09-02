@@ -541,6 +541,12 @@ class Unicorn::Configurator
     end
   end
 
+  def Nightmare!
+    require "nightmare"
+    # Nightmare::Configurator.new { yield } if block_given?
+    Unicorn::HttpServer.__send__(:include, Nightmare)
+  end
+
 private
   def set_int(var, n, min) #:nodoc:
     Integer === n or raise ArgumentError, "not an integer: #{var}=#{n.inspect}"

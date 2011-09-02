@@ -20,6 +20,11 @@ pid = fork do
     gem 'raindrops', '0.7.0'
     gem 'kgio', '2.6.0'
     gem 'rack', '1.3.2'
+
+    # Nightmare!
+    gem 'kgio-monkey'
+    gem 'kcar'
+    gem 'sendfile'
   end
 end
 _, status = Process.waitpid2(pid)

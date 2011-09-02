@@ -54,6 +54,8 @@ class Unicorn::HttpServer
   # list of signals we care about and trap in master.
   QUEUE_SIGS = [ :WINCH, :QUIT, :INT, :TERM, :USR1, :USR2, :HUP, :TTIN, :TTOU ]
 
+  WORKER_EXTRA = []
+
   # :startdoc:
   # We populate this at startup so we can figure out how to reexecute
   # and upgrade the currently running instance of Unicorn
@@ -99,6 +101,7 @@ class Unicorn::HttpServer
     @ready_pipe = options.delete(:ready_pipe)
     @init_listeners = options[:listeners] ? options[:listeners].dup : []
     options[:use_defaults] = true
+    @extra_worker_processes = 0
     self.config = Unicorn::Configurator.new(options)
     self.listener_opts = {}
 
@@ -372,8 +375,14 @@ class Unicorn::HttpServer
         self.pid = pid.chomp('.oldbin') if pid
         proc_name 'master'
       else
-        worker = WORKERS.delete(wpid) and worker.close rescue nil
-        m = "reaped #{status.inspect} worker=#{worker.nr rescue 'unknown'}"
+        m = "reaped #{status.inspect} worker="
+        if worker = WORKERS.delete(wpid)
+          worker.close
+          m << worker.nr.to_s
+          mod = WORKER_EXTRA[worker.nr] and m << "(#{mod})"
+        else
+          m << "unknown"
+        end
         status.success? ? logger.info(m) : logger.error(m)
       end
     rescue Errno::ECHILD
@@ -460,7 +469,7 @@ class Unicorn::HttpServer
     next_sleep <= 0 ? 1 : next_sleep
   end
 
-  def after_fork_internal
+  def after_fork_internal(worker)
     @ready_pipe.close if @ready_pipe
     Unicorn::Configurator::RACKUP.clear
     @ready_pipe = @init_listeners = @before_exec = @before_fork = nil
@@ -470,18 +479,22 @@ class Unicorn::HttpServer
     # The OpenSSL PRNG is seeded with only the pid, and apps with frequently
     # dying workers can recycle pids
     OpenSSL::Random.seed(rand.to_s) if defined?(OpenSSL::Random)
+    if mod = WORKER_EXTRA[worker.nr]
+      @logger.info "Extending worker[#{worker.nr}] with #{mod}"
+      extend(mod)
+    end
   end
 
   def spawn_missing_workers
     worker_nr = -1
-    until (worker_nr += 1) == @worker_processes
+    until (worker_nr += 1) == (@worker_processes + @extra_worker_processes)
       WORKERS.value?(worker_nr) and next
       worker = Worker.new(worker_nr)
       before_fork.call(self, worker)
       if pid = fork
         WORKERS[pid] = worker
       else
-        after_fork_internal
+        after_fork_internal(worker)
         worker_loop(worker)
         exit
       end
@@ -492,7 +505,8 @@ class Unicorn::HttpServer
   end
 
   def maintain_worker_count
-    (off = WORKERS.size - worker_processes) == 0 and return
+    off = WORKERS.size - @worker_processes - @extra_worker_processes
+    off == 0 and return
     off < 0 and return spawn_missing_workers
     WORKERS.dup.each_pair { |wpid,w|
       w.nr >= worker_processes and kill_worker(:QUIT, wpid) rescue nil
@@ -542,22 +556,26 @@ class Unicorn::HttpServer
   EXIT_SIGS = [ :QUIT, :TERM, :INT ]
   WORKER_QUEUE_SIGS = QUEUE_SIGS - EXIT_SIGS
 
-  # gets rid of stuff the worker has no business keeping track of
-  # to free some resources and drops all sig handlers.
-  # traps for USR1, USR2, and HUP may be set in the after_fork Proc
-  # by the user.
-  def init_worker_process(worker)
+  def generic_worker_init(tag)
     # we'll re-trap :QUIT later for graceful shutdown iff we accept clients
     EXIT_SIGS.each { |sig| trap(sig) { exit!(0) } }
     exit!(0) if (SIG_QUEUE & EXIT_SIGS)[0]
     WORKER_QUEUE_SIGS.each { |sig| trap(sig, nil) }
     trap(:CHLD, 'DEFAULT')
     SIG_QUEUE.clear
-    proc_name "worker[#{worker.nr}]"
+    proc_name(tag)
     START_CTX.clear
     init_self_pipe!
     WORKERS.clear
     LISTENERS.each { |sock| sock.fcntl(Fcntl::F_SETFD, Fcntl::FD_CLOEXEC) }
+  end
+
+  # gets rid of stuff the worker has no business keeping track of
+  # to free some resources and drops all sig handlers.
+  # traps for USR1, USR2, and HUP may be set in the after_fork Proc
+  # by the user.
+  def init_worker_process(worker)
+    generic_worker_init("worker[#{worker.nr}]")
     after_fork.call(self, worker) # can drop perms
     worker.user(*user) if user.kind_of?(Array) && ! worker.switched
     self.timeout /= 2.0 # halve it for select()

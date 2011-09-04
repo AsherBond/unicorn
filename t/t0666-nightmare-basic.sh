@@ -1,6 +1,6 @@
 #!/bin/sh
 . ./test-lib.sh
-t_plan 31 "basic Nightmare upstream tests"
+t_plan 32 "basic Nightmare upstream tests"
 
 t_begin "setup and start" && {
 	unicorn_setup
@@ -10,6 +10,12 @@ t_begin "setup and start" && {
 	random_blob_sha1=$(rsha1 < random_blob)
 	random_blob_sha1_1m=$(dd if=random_blob bs=1M count=1 | rsha1)
 	unicorn_wait_start
+}
+
+t_begin "dying backend gives 502" && {
+	curl -sSfv http://$listen/die/now 2>$curl_err || echo ok > $ok
+	test x"$(cat $ok)" = xok
+	grep '\<502\>' < $curl_err
 }
 
 t_begin "burst pipelining PUT requests" && {

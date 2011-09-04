@@ -28,6 +28,8 @@ class NmTestUpstream
       [ 200, {}, [ "#{env.inspect}\n" ] ]
     when "/random_blob"
       random_blob(env)
+    when "/die/now"
+      exit!(0)
     when "/sha1"
       sha1(env)
     when %r{\A/sleep/(\d+)\z}

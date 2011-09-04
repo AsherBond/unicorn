@@ -143,7 +143,8 @@ class Nightmare::UpstreamBase < Kgio::Socket
         end
       when nil # EOF
         done
-        return @client.on_response_done
+        return Hash === @response ?
+               @client.upstream_fail(nil) : @client.on_response_done
       when :wait_readable # we do not support SSL upstreams
         return nm_yield(rv, :@proxy_read_timeout)
       end

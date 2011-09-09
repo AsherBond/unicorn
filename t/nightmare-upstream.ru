@@ -45,7 +45,6 @@ class NmTestUpstream
     # /\A100-continue\z/i =~ env['HTTP_EXPECT'] and return [ 100, {}, [] ]
     digest = Digest::SHA1.new
     input = env['rack.input']
-    warn "input.size=#{input.size}"
     buf = ""
     while input.read(16384, buf)
       digest.update(buf)

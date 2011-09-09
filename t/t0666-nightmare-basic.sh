@@ -221,7 +221,7 @@ t_begin "graceful shutdown succeeds while random_blob is transferred" && {
 
 t_begin "gracefully shut down correctly" && {
 	sleep 1
-	if kill -0 $unicorn_pid
+	if kill -0 $unicorn_pid >/dev/null 2>&1
 	then
 		die "$unicorn_pid is still running"
 	fi

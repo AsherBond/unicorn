@@ -77,7 +77,31 @@ class Nightmare::ClientBase < Kgio::Socket
     client_fail(e)
   end
 
+  def expect_100_ok?(env)
+    /\A100-continue\z/i =~ env[Unicorn::Const::HTTP_EXPECT] or return true
+
+    buf = Unicorn::Const::EXPECT_100_RESPONSE
+    case rv = kgio_trywrite(buf)
+    when nil
+      env.delete(Unicorn::Const::HTTP_EXPECT)
+      return true
+    when String # highly unlikely
+      buf = rv # retry, this is terrible!
+    when Symbol # highly unlikely
+      # totally failed?  OK, we don't /have/ to send a response
+      if buf == Unicorn::Const::EXPECT_100_RESPONSE
+        env.delete(Unicorn::Const::HTTP_EXPECT)
+        return true
+      end
+
+      # we sent a partial response, just kill the client, it's
+      # not worth it for such a corner case
+      return done
+    end while true
+  end
+
   def prepare_request_body(length)
+    expect_100_ok?(@parser.env) or return
     # FIXME: reject big requests
     @state = :body
     @buf2 = ""

@@ -1,6 +1,6 @@
 #!/bin/sh
 . ./test-lib.sh
-t_plan 32 "basic Nightmare upstream tests"
+t_plan 34 "basic Nightmare upstream tests"
 
 t_begin "setup and start" && {
 	unicorn_setup
@@ -32,16 +32,33 @@ t_begin "burst pipelining PUT requests" && {
         test 2 -eq $(grep "^${expect}$" $tmp | wc -l)
 }
 
+t_begin "small upload is read correctly with Expect: 100-continue" && {
+	curl -T nightmare-upstream.ru -sSvf \
+	  http://$listen/sha1 > $tmp 2>$curl_err
+	test x"$(cat $tmp)" = x"$(rsha1 < nightmare-upstream.ru)"
+	grep -F 'HTTP/1.1 100 Continue' $curl_err
+}
+
+t_begin "small chunked upload is read correctly with Expect: 100-continue" && {
+	curl -T- < nightmare-upstream.ru -sSvf \
+	  http://$listen/sha1 > $tmp 2>$curl_err
+	test x"$(cat $tmp)" = x"$(rsha1 < nightmare-upstream.ru)"
+	grep -F 'HTTP/1.1 100 Continue' $curl_err
+}
+
+
 t_begin "small upload is read correctly" && {
 	curl -T nightmare-upstream.ru -sSvf -H Expect: \
 	  http://$listen/sha1 > $tmp 2>$curl_err
 	test x"$(cat $tmp)" = x"$(rsha1 < nightmare-upstream.ru)"
+	grep -F 'HTTP/1.1 100 Continue' $curl_err && die "Unexpected 100"
 }
 
 t_begin "small chunked upload is read correctly" && {
 	curl -T- < nightmare-upstream.ru -sSvf -H Expect: \
 	  http://$listen/sha1 > $tmp 2>$curl_err
 	test x"$(cat $tmp)" = x"$(rsha1 < nightmare-upstream.ru)"
+	grep -F 'HTTP/1.1 100 Continue' $curl_err && die "Unexpected 100"
 }
 
 t_begin "1M chunked upload is read correctly" && {
